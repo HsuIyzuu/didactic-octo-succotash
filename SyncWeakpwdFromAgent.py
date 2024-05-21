@@ -2,6 +2,7 @@ import requests
 import json
 from configparser import ConfigParser
 import psycopg2
+from psycopg2.extras import execute_batch
 
 # 连接数据库
 def connect_db():
@@ -65,8 +66,9 @@ def update_state(id_tuple):
     sql='''
     UPDATE vuln_weakpwd_entry
     SET "vuln_status"='6'
-    WHERE entry_id IN %s
-    '''
+    # 最近更新时间早于7天的设置为已修复
+    WHERE entry_id IN %s or create_time < NOW() - INTERVAL '7 days'
+   '''
 
     # print(sql)
     conn = connect_db()
@@ -99,8 +101,8 @@ def id_db_set(coloum,table_name):
 # 向数据库插入新的条目
 def create_vwe(id_list):
     sql="""
-    INSERT INTO "vuln_weakpwd_entry" (entry_id, group_name, service, username, password,event_state, can_login, path, hostname, ip, host_state,host_last_seen_time)
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    INSERT INTO "vuln_weakpwd_entry" (entry_id, group_name, service, username, password,event_state, can_login, path,create_time, hostname, ip, host_state,host_last_seen_time)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, to_timestamp(%s), %s, %s, %s, %s)
     ON CONFLICT (entry_id) DO UPDATE
     SET
     host_last_seen_time = EXCLUDED.host_last_seen_time,
@@ -113,6 +115,7 @@ def create_vwe(id_list):
     path = EXCLUDED.path,
     hostname = EXCLUDED.hostname,
     ip = EXCLUDED.ip,
+    create_time = EXCLUDED.create_time,
     update_time=NOW()
     ;
     """
@@ -154,6 +157,9 @@ def add_new(new_list):
             d['state'],
             d['can_login'],
             d['path'],
+            d['updated_at']
+            # psycopg2.TimestampFromTicks(d['updated_at']), # 传递 Unix 时间戳
+            # DatatypeMismatch: column "create_time" is of type timestamp without time zone but expression is of type numeric
             d['host_view']['host_name'],
             d['host_view']['host_ip'],
             d['host_view']['host_state'],
